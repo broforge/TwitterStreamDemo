@@ -14,16 +14,21 @@
 
 @implementation ViewController
 
+- (BOOL)prefersStatusBarHidden
+{
+    return YES;
+}
+
 - (void)viewDidLoad
 {
     [super viewDidLoad];
-	// Do any additional setup after loading the view, typically from a nib.
+    
+    [self performSelector:@selector(startSegue) withObject:nil afterDelay:2.5];
 }
 
-- (void)didReceiveMemoryWarning
+- (void)startSegue
 {
-    [super didReceiveMemoryWarning];
-    // Dispose of any resources that can be recreated.
+    [self performSegueWithIdentifier:@"ShowTwitterView" sender:nil];
 }
 
 @end
