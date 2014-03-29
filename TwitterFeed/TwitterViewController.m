@@ -97,29 +97,85 @@ static ACAccountStore* _store;
             {
                 ACAccount *account = [twitterAccounts lastObject];
                 
-                NSURL *url = [NSURL URLWithString:@"https://stream.twitter.com/1.1/statuses/filter.json"];
-                NSDictionary *params = @{@"track" : searchKey};
-                
-                SLRequest *request = [SLRequest requestForServiceType:SLServiceTypeTwitter
-                                                        requestMethod:SLRequestMethodPOST
-                                                                  URL:url
-                                                           parameters:params];
-                [request setAccount:account];
-                
-                dispatch_async(dispatch_get_main_queue(),
-                               ^{
-                                   self.connection = [NSURLConnection connectionWithRequest:[request preparedURLRequest] delegate:self];
-                                   [self.connection start];
-                               });
+                if ([searchKey hasPrefix:@"@"])
+                {
+                    [self startUserIDRequest:searchKey withAccount:account];
+                }
+                else
+                {
+                    NSDictionary *params = @{@"track" : searchKey};
+                    [self startTrackRequest:params withAccount:account];
+                }
             }
         }
         else
         {
             NSLog(@"connection error: %@", [error localizedDescription]);
+            
+            self.state = ConnectionStateNone;
+            [self.tableView reloadData];
         }
     };
     
     [_store requestAccessToAccountsWithType:twitterAccountType options:nil completion:handler];
+}
+
+- (void)startUserIDRequest:(NSString*)searchKey withAccount:(ACAccount*)account
+{
+    NSString* screenName = [searchKey stringByReplacingOccurrencesOfString:@"@" withString:@""];
+    
+    // request required replacing ',' with %2C
+    screenName = [screenName stringByReplacingOccurrencesOfString:@"," withString:@"%2C"];
+    
+    NSURL* url = [NSURL URLWithString:[NSString stringWithFormat:@"https://api.twitter.com/1/users/lookup.json?screen_name=%@",screenName]];
+    SLRequest *request = [SLRequest requestForServiceType:SLServiceTypeTwitter
+                                            requestMethod:SLRequestMethodGET
+                                                      URL:url
+                                               parameters:nil];
+    request.account = account;
+    
+    [request performRequestWithHandler:^(NSData *responseData, NSHTTPURLResponse *urlResponse, NSError *error) {
+        if (!error && responseData.length > 0)
+        {
+            NSArray* parsedData = [NSJSONSerialization JSONObjectWithData:responseData options:0 error:&error];
+            
+            NSMutableString* userList = [NSMutableString stringWithFormat:@""];
+            for (NSDictionary* dictionary in parsedData)
+            {
+                if(userList.length > 0)
+                {
+                    // need to use ',' instead of %2C or twitter cannot parse the params
+                    [userList appendString:@","];
+                }
+                [userList appendString:[dictionary objectForKey:@"id_str"]];
+            }
+            NSDictionary *params = @{@"follow" : userList};
+            [self startTrackRequest:params withAccount:account];
+        }
+        else
+        {
+            NSLog(@"userID request error: %@", [error localizedDescription]);
+            self.state = ConnectionStateNone;
+            [self.tableView reloadData];
+        }
+    }];
+
+}
+
+- (void)startTrackRequest:(NSDictionary*)params withAccount:(ACAccount*)account
+{
+    NSURL *url = [NSURL URLWithString:@"https://stream.twitter.com/1.1/statuses/filter.json"];
+    SLRequest *request = [SLRequest requestForServiceType:SLServiceTypeTwitter
+                                            requestMethod:SLRequestMethodPOST
+                                                      URL:url
+                                               parameters:params];
+    [request setAccount:account];
+    
+    dispatch_async(dispatch_get_main_queue(),
+                   ^{
+                       self.connection = [NSURLConnection connectionWithRequest:[request preparedURLRequest] delegate:self];
+                       [self.connection start];
+                   });
 }
 
 #pragma mark - NSURLConnection data delegate
@@ -184,8 +240,6 @@ static ACAccountStore* _store;
         [self.data appendData:partialEntryData];
     }
 
-    // can't use animated update on high traffic search
-    // causes extra table view cells to be created and results in crash from memory
     [self.tableView reloadData];
 }
 
@@ -195,7 +249,7 @@ static ACAccountStore* _store;
     
     self.connection = nil;
     self.state = ConnectionStateNone;
-    [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:0] withRowAnimation:UITableViewRowAnimationFade];
+    [self.tableView reloadData];
 }
 
 #pragma mark - NSURLConnection delegate
@@ -206,7 +260,7 @@ static ACAccountStore* _store;
     
     self.connection = nil;
     self.state = ConnectionStateNone;
-    [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:0] withRowAnimation:UITableViewRowAnimationFade];
+    [self.tableView reloadData];
 }
 
 #pragma mark - UISearchBar delegate
@@ -280,7 +334,7 @@ static ACAccountStore* _store;
     [self.connection cancel];
     self.connection = nil;
     self.state = ConnectionStateNone;
-    [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:0] withRowAnimation:UITableViewRowAnimationFade];
+    [self.tableView reloadData];
 }
 
 @end
