@@ -13,6 +13,8 @@
 #import <Social/Social.h>
 #import <Accounts/Accounts.h>
 
+#define MAX_TWEETS 50
+
 typedef enum{
     ConnectionStateNone = 0,
     ConnectionStateAuthorizing,
@@ -26,6 +28,7 @@ static ACAccountStore* _store;
 @property (strong, nonatomic) NSMutableArray* array;
 @property (strong, nonatomic) NSURLConnection* connection;
 @property ConnectionState state;
+@property (strong, nonatomic) NSMutableData* data;
 
 @end
 
@@ -46,7 +49,8 @@ static ACAccountStore* _store;
     }
     
     self.state = ConnectionStateNone;
-    self.array = [NSMutableArray array];
+    self.array = [NSMutableArray arrayWithCapacity:MAX_TWEETS];
+    self.data = [NSMutableData data];
     
     for (UIView* parent in self.searchBar.subviews)
     {
@@ -131,17 +135,56 @@ static ACAccountStore* _store;
 {
     NSLog(@"data received");
     
-    NSError* error;
-    NSDictionary *parsedObject = [NSJSONSerialization JSONObjectWithData:data options:0 error:&error];
-    if(!error)
+    [self.data appendData:data];
+    NSString* jsonString = [[NSString alloc] initWithData:self.data encoding:NSUTF8StringEncoding];
+    self.data.length = 0;
+
+    NSArray* jsonEntries = [jsonString componentsSeparatedByCharactersInSet: [NSCharacterSet newlineCharacterSet]];
+    NSMutableArray* validEntries = [NSMutableArray arrayWithCapacity:jsonEntries.count];
+    for (NSString* entry in jsonEntries)
     {
-        [self.array insertObject:parsedObject atIndex:0];
-        [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:0] withRowAnimation:UITableViewRowAnimationFade];
+        if (entry.length > 0)
+        {
+            [validEntries addObject:entry];
+        }
     }
-    else
+    
+    NSData* partialEntryData = nil;
+    for (NSString* entry in validEntries)
     {
-        NSLog(@"parse error: %@", [error localizedDescription]);
+        NSData* entryData = [entry dataUsingEncoding:NSUTF8StringEncoding];
+        
+        if (entryData)
+        {
+            NSError* error;
+            NSDictionary *parsedObject = [NSJSONSerialization JSONObjectWithData:entryData options:0 error:&error];
+            if (!error)
+            {
+                [self.array insertObject:parsedObject atIndex:0];
+                if (self.array.count > MAX_TWEETS)
+                {
+                    [self.array removeLastObject];
+                }
+            }
+            else
+            {
+                NSLog(@"parse error: %@", [error localizedDescription]);
+                NSLog(@"dataString: %@", entry);
+
+                if (entry.length > 0 && entry == [jsonEntries lastObject])
+                {
+                    partialEntryData = entryData;
+                }
+            }
+        }
     }
+    
+    if (partialEntryData)
+    {
+        [self.data appendData:partialEntryData];
+    }
+    
+    [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:0] withRowAnimation:UITableViewRowAnimationFade];
 }
 
 - (void)connectionDidFinishLoading:(NSURLConnection *)connection
