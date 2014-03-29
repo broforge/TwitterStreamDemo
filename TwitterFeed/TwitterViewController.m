@@ -140,7 +140,7 @@ static ACAccountStore* _store;
     self.data.length = 0;
 
     NSArray* jsonEntries = [jsonString componentsSeparatedByCharactersInSet: [NSCharacterSet newlineCharacterSet]];
-    NSMutableArray* validEntries = [NSMutableArray arrayWithCapacity:jsonEntries.count];
+    NSMutableArray* validEntries = [NSMutableArray array];
     for (NSString* entry in jsonEntries)
     {
         if (entry.length > 0)
@@ -183,8 +183,10 @@ static ACAccountStore* _store;
     {
         [self.data appendData:partialEntryData];
     }
-    
-    [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:0] withRowAnimation:UITableViewRowAnimationFade];
+
+    // can't use animated update on high traffic search
+    // causes extra table view cells to be created and results in crash from memory
+    [self.tableView reloadData];
 }
 
 - (void)connectionDidFinishLoading:(NSURLConnection *)connection
